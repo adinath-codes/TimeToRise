@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IDE - MCP Specialized</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Fira+Code:wght@400;500&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Monaco Editor -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs/loader.min.js"></script>
+</head>
+
+<body class="dark-theme">
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <i class="fas fa-microchip"></i>
+                    <span>MCP IDE</span>
+                </div>
+            </div>
+
+            <div class="path-input-container">
+                <input type="text" id="target-path" placeholder="Absolute path..." spellcheck="false">
+                <button id="path-go-btn" title="Open Path">
+                    <i class="fas fa-arrow-right"></i>
+                </button>
+            </div>
+
+            <div class="sidebar-sections">
+                <div class="explorer-container">
+                    <div class="section-header">
+                        <span>EXPLORER</span>
+                        <i class="fas fa-chevron-down"></i>
+                    </div>
+                    <div id="file-tree" class="file-tree">
+                        <div class="loading-spinner">
+                            <i class="fas fa-circle-notch fa-spin"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mcp-tools-container">
+                    <div class="section-header">
+                        <span>MCP TOOLS</span>
+                        <i class="fas fa-chevron-down"></i>
+                    </div>
+                    <div id="mcp-tools-list" class="mcp-tools-list">
+                        <div class="empty-state">Open a Python MCP file to see tools</div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="editor-header">
+                <div class="tab-container">
+                    <div id="active-tab" class="tab active">
+                        <i class="fab fa-python python-icon"></i>
+                        <span id="filename-display">Untitled</span>
+                        <i id="unsaved-indicator" class="fas fa-circle" style="display: none;"></i>
+                    </div>
+                </div>
+                <div class="action-buttons">
+                    <button id="run-btn" class="btn btn-success" title="Run MCP Server">
+                        <i class="fas fa-play"></i>
+                        <span>Run Server</span>
+                    </button>
+                    <button id="save-btn" class="btn btn-primary" title="Save (Ctrl+S)">
+                        <i class="fas fa-save"></i>
+                        <span>Save</span>
+                    </button>
+                </div>
+            </header>
+
+            <div class="editor-layout">
+                <div id="editor-container" class="editor-container">
+                    <!-- Monaco Editor will be loaded here -->
+                </div>
+
+                <div id="console-panel" class="console-panel hide">
+                    <div class="console-header">
+                        <span>CONSOLE</span>
+                        <div class="console-actions">
+                            <button id="clear-console" title="Clear Console"><i class="fas fa-ban"></i></button>
+                            <button id="stop-process" title="Stop Process" disabled><i class="fas fa-stop"></i></button>
+                            <button id="close-console" title="Close Console"><i class="fas fa-times"></i></button>
+                        </div>
+                    </div>
+                    <div id="console-output" class="console-output"></div>
+                </div>
+            </div>
+
+            <footer class="footer">
+                <div class="status-left">
+                    <span id="cursor-pos">Ln 1, Col 1</span>
+                    <span id="mcp-status" class="status-pill">MCP: Idle</span>
+                </div>
+                <div class="status-right" id="full-path-display">
+                    No file open
+                </div>
+            </footer>
+        </main>
+    </div>
+
+    <!-- Notification system -->
+    <div id="notification-container"></div>
+
+    <script src="script.js"></script>
+</body>
+
+</html>
