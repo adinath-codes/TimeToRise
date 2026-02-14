@@ -650,26 +650,64 @@ export default function ArchestraStudio() {
     isOpen: false,
     category: null,
   });
+  const [archestraNodes, setArchestraNodes] = useState({ mcp: [], provider: [], client: [] });
+  const [isLoadingNodes, setIsLoadingNodes] = useState(true);
 
-  // 1. Discovery Sync
+  // Fetch nodes from Archestra
   useEffect(() => {
-    const fetchDiscovery = async () => {
+    const fetchNodes = async () => {
       try {
-        const resp = await fetch("http://localhost:3001/api/mcp/discover");
-        const dataArray = await resp.json();
-        if (dataArray && dataArray.length > 0) {
-          setNodes((nds) => nds.map((n) => n.id === "mcp-pg" ? { ...n, data: { ...n.data, availableServers: dataArray } } : n));
+        const resp = await fetch("http://localhost:3001/api/orchestra/nodes");
+        const data = await resp.json();
+        if (data.success && data.standardNodes) {
+          const grouped = { mcp: [], provider: [], client: [] };
+          data.standardNodes.forEach(node => {
+            if (grouped[node.category]) {
+              grouped[node.category].push({
+                id: node.toolId,
+                label: node.label,
+                sublabel: node.sublabel,
+                icon: node.icon
+              });
+            }
+          });
+          setArchestraNodes(grouped);
+        } else {
+          // Archestra offline - clear nodes
+          setArchestraNodes({ mcp: [], provider: [], client: [] });
         }
       } catch (err) {
-        console.error("Discovery failed:", err);
+        console.error("Failed to fetch Archestra nodes:", err);
+        setArchestraNodes({ mcp: [], provider: [], client: [] });
+      } finally {
+        setIsLoadingNodes(false);
       }
     };
-    fetchDiscovery();
-  }, [setNodes]);
+    fetchNodes();
+    const interval = setInterval(fetchNodes, 10000);
+    return () => clearInterval(interval);
+  }, []);
 
-  // 2. Auto-save
+  // Load saved topology
   useEffect(() => {
-    if (nodes.length <= 3) return;
+    const loadTopology = async () => {
+      try {
+        const resp = await fetch("http://localhost:3001/api/orchestra/load");
+        const data = await resp.json();
+        if (data.success && data.nodes && data.edges) {
+          setNodes(data.nodes);
+          setEdges(data.edges);
+        }
+      } catch (err) {
+        console.error("Failed to load topology:", err);
+      }
+    };
+    loadTopology();
+  }, [setNodes, setEdges]);
+
+  // Auto-save to Archestra
+  useEffect(() => {
+    if (nodes.length <= 6) return;
     const timer = setTimeout(async () => {
       try {
         await fetch('http://localhost:3001/api/orchestra/save', {
@@ -677,10 +715,11 @@ export default function ArchestraStudio() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ nodes, edges })
         });
+        console.log('Topology auto-saved to Archestra');
       } catch (err) {
         console.error("Auto-save failed:", err);
       }
-    }, 2000);
+    }, 3000);
     return () => clearTimeout(timer);
   }, [nodes, edges]);
 
@@ -757,21 +796,21 @@ export default function ArchestraStudio() {
     if (!isOpen) return null;
     const colConfig = COLUMNS[category];
     const IconComponent = colConfig.icon;
-    const filteredTools = (AVAILABLE_TOOLS[category] || []).filter(t => t.label.toLowerCase().includes(search.toLowerCase()) || t.sublabel.toLowerCase().includes(search.toLowerCase()));
+    
+    const toolsToShow = archestraNodes[category] || [];
+    const filteredTools = toolsToShow.filter(t => t.label.toLowerCase().includes(search.toLowerCase()) || t.sublabel.toLowerCase().includes(search.toLowerCase()));
+    const isArchestraOffline = archestraNodes.mcp.length === 0 && archestraNodes.provider.length === 0;
 
     return (
       <div className="fixed inset-0 z-[100] flex items-center justify-center p-8 animate-in fade-in zoom-in-95 duration-700">
         <div className="absolute inset-0 bg-obsidian-950/95 backdrop-blur-3xl" onClick={onClose} />
 
         <div className="relative w-full max-w-6xl h-[90vh] floating-panel flex flex-col depth-layer-4">
-          {/* Animated background */}
           <div className="absolute inset-0 bg-grid-faded opacity-10 pointer-events-none" />
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(188,19,254,0.08),transparent_50%)] pointer-events-none" />
 
-          {/* Header */}
           <div className="px-20 py-14 flex items-center justify-between border-b border-white/10 bg-gradient-to-br from-obsidian-950/60 to-obsidian-900/40 relative z-10">
             <div className="flex items-center gap-12">
-              {/* Icon */}
               <div
                 className="p-6 rounded-[32px] border border-white/15 shadow-2xl relative overflow-hidden group depth-layer-3 animate-float-gentle"
                 style={{
@@ -783,7 +822,6 @@ export default function ArchestraStudio() {
                 <IconComponent size={42} style={{ color: colConfig.color }} className="relative z-10 drop-shadow-2xl" strokeWidth={2.5} />
               </div>
 
-              {/* Title */}
               <div className="flex flex-col gap-3">
                 <h2 className="text-5xl font-black text-white tracking-tight uppercase italic leading-none drop-shadow-lg">
                   {colConfig.label}
@@ -797,7 +835,7 @@ export default function ArchestraStudio() {
                       color: colConfig.color
                     }}
                   >
-                    Component Registry
+                    {isLoadingNodes ? 'Loading from Archestra...' : isArchestraOffline ? '⚠️ Archestra Offline' : 'Archestra Registry'}
                   </div>
                   <div className="h-1 w-1 rounded-full bg-white/20" />
                   <span className="text-[10px] font-black text-slate-600 uppercase tracking-[0.3em]">
@@ -885,8 +923,14 @@ export default function ArchestraStudio() {
                     <Search size={56} strokeWidth={1.5} />
                   </div>
                   <p className="text-lg font-black tracking-[0.4em] uppercase italic text-slate-600">
-                    No Components Found
+                    {isArchestraOffline ? 'Archestra Not Connected' : 'No Components Found'}
                   </p>
+                  {isArchestraOffline && (
+                    <p className="text-xs text-slate-700 mt-4 max-w-md">
+                      Start Archestra on port 3000:<br/>
+                      <code className="text-neon-cyan">docker run -p 3000:3000 archestra/platform</code>
+                    </p>
+                  )}
                 </div>
               )}
             </div>
@@ -954,10 +998,14 @@ export default function ArchestraStudio() {
           <div className="flex items-center gap-6 min-w-[240px] justify-end">
             <div className="hidden xl:flex flex-col items-end gap-0.5">
               <div className="flex items-center gap-2">
-                <Activity size={12} className="text-neon-emerald" />
-                <span className="text-[9px] font-black text-white uppercase tracking-[0.2em]">Online</span>
+and                 <Activity size={12} className={archestraNodes.mcp.length > 0 || archestraNodes.provider.length > 0 ? "text-neon-emerald" : "text-red-500"} />
+                <span className="text-[9px] font-black text-white uppercase tracking-[0.2em]">
+                  {archestraNodes.mcp.length > 0 || archestraNodes.provider.length > 0 ? 'Archestra Connected' : 'Archestra Offline'}
+                </span>
               </div>
-              <span className="text-[7px] font-bold text-slate-600 uppercase tracking-widest opacity-60">ID: 0x8F2A...9C</span>
+              <span className="text-[7px] font-bold text-slate-600 uppercase tracking-widest opacity-60">
+                {archestraNodes.mcp.length + archestraNodes.provider.length} nodes available
+              </span>
             </div>
             <button className="btn-tech flex items-center gap-3 px-8 py-3 rounded-2xl bg-gradient-to-r from-neon-purple to-neon-purple/80 text-white hover:scale-105 transition-all duration-500 font-black text-[10px] tracking-[0.2em] uppercase shadow-[0_16px_32px_-8px_rgba(188,19,254,0.4)] active:scale-95 group overflow-hidden">
               <div className="glass-shine" />

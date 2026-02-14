@@ -142,7 +142,7 @@ export const CopilotPane = ({ onInsertCode }) => {
     {
       id: 1,
       role: "ai",
-      text: "Hi, I'm your MCP Copilot.\nAsk me to generate tools, resources, or prompts for your server.",
+      text: "Hi, I'm powered by Archestra AI.\nAsk me to generate tools, resources, or prompts for your server.",
       code: null,
     },
   ]);
@@ -156,7 +156,31 @@ export const CopilotPane = ({ onInsertCode }) => {
     }
   }, [messages, isThinking]);
 
-  const generateResponse = (prompt) => {
+  const generateResponse = async (prompt) => {
+    try {
+      const response = await fetch('http://localhost:3001/api/agents/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agentId: 'copilot',
+          message: `Generate Python MCP code for: ${prompt}`,
+          conversationId: Date.now()
+        })
+      });
+      
+      const data = await response.json();
+      if (data.success && data.response) {
+        const codeMatch = data.response.match(/```python\n([\s\S]*?)```/);
+        return {
+          text: data.response.replace(/```python[\s\S]*?```/g, '').trim() || 'Generated code below:',
+          code: codeMatch ? codeMatch[1].trim() : null
+        };
+      }
+    } catch (err) {
+      console.error('Archestra AI error:', err);
+    }
+    
+    // Fallback to local generation
     const lower = prompt.toLowerCase();
     if (lower.includes("tool") || lower.includes("function")) {
       const match = lower.match(
@@ -189,16 +213,16 @@ export const CopilotPane = ({ onInsertCode }) => {
     };
   };
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (!input.trim()) return;
     setMessages((p) => [...p, { id: Date.now(), role: "user", text: input }]);
+    const userInput = input;
     setInput("");
     setIsThinking(true);
-    setTimeout(() => {
-      const res = generateResponse(input);
-      setMessages((p) => [...p, { id: Date.now() + 1, role: "ai", ...res }]);
-      setIsThinking(false);
-    }, 1100);
+    
+    const res = await generateResponse(userInput);
+    setMessages((p) => [...p, { id: Date.now() + 1, role: "ai", ...res }]);
+    setIsThinking(false);
   };
 
   return (

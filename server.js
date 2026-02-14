@@ -2,36 +2,227 @@ import express from 'express';
 import cors from 'cors';
 import fs from 'fs';
 import path from 'path';
-import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = 3001; // Using 3001 to avoid conflict with anything else
+const PORT = 3001;
+const ARCHESTRA_URL = 'http://localhost:3000';
+const ARCHESTRA_API_KEY = 'archestra_3e51cb91a735badab482f282c4386e3d';
 
 app.use(cors());
 app.use(express.json());
 
-// Discovery: Find all files starting with "mcp_" and ending with ".py"
-app.get('/api/mcp/discover', (req, res) => {
+// Archestra API helper with API key authentication
+const archestraFetch = async (endpoint, options = {}) => {
+    const url = `${ARCHESTRA_URL}${endpoint}`;
+    const headers = {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${ARCHESTRA_API_KEY}`,
+        ...options.headers
+    };
+    
+    const response = await fetch(url, {
+        ...options,
+        headers
+    });
+    
+    if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`Archestra API error: ${response.statusText} - ${error}`);
+    }
+    return response.json();
+};
+
+// Get MCP servers from Archestra
+app.get('/api/mcp/discover', async (req, res) => {
     try {
-        const files = fs.readdirSync(process.cwd());
-        const mcpFiles = files
-            .filter(f => f.startsWith('mcp_') && f.endsWith('.py'))
-            .map(f => ({
-                name: f,
-                id: f.replace('.py', ''),
-                path: path.join(process.cwd(), f)
-            }));
-        res.json({ success: true, servers: mcpFiles });
+        const data = await archestraFetch('/api/mcp/servers');
+        const servers = data.servers || [];
+        res.json({ success: true, servers });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
 
-// File System: List all files in the current directory (for the IDE Explorer)
+// Get nodes from Archestra (MCP servers + Agents)
+app.get('/api/orchestra/nodes', async (req, res) => {
+    try {
+        const [mcpData, agentsData] = await Promise.all([
+            archestraFetch('/api/mcp/servers').catch(err => {
+                console.log('MCP fetch failed:', err.message);
+                return { servers: [] };
+            }),
+            archestraFetch('/api/agents').catch(err => {
+                console.log('Agents fetch failed:', err.message);
+                return { agents: [] };
+            })
+        ]);
+
+        const nodes = [];
+        
+        (mcpData.servers || []).forEach(server => {
+            nodes.push({
+                id: server.id,
+                category: 'mcp',
+                label: server.name,
+                sublabel: server.description || 'MCP Server',
+                icon: 'db',
+                toolId: server.id
+            });
+        });
+
+        (agentsData.agents || []).forEach(agent => {
+            nodes.push({
+                id: agent.id,
+                category: 'provider',
+                label: agent.name,
+                sublabel: agent.description || 'AI Agent',
+                icon: 'net',
+                toolId: agent.id
+            });
+        });
+
+        if (nodes.length === 0) {
+            console.log('No nodes from Archestra. Use Archestra UI at http://localhost:3000 to add MCP servers and agents.');
+            return res.json({ 
+                success: false, 
+                standardNodes: [],
+                message: 'No nodes available. Install MCP servers and create agents in Archestra UI (http://localhost:3000)' 
+            });
+        }
+
+        console.log(`Found ${nodes.length} nodes from Archestra`);
+        res.json({ success: true, standardNodes: nodes });
+    } catch (error) {
+        console.error('Archestra connection error:', error.message);
+        res.json({ 
+            success: false, 
+            standardNodes: [],
+            message: 'Archestra not available. Start it with: docker run -p 3000:3000 archestra/platform' 
+        });
+    }
+});
+
+// Save topology and deploy to Archestra
+app.post('/api/orchestra/save', async (req, res) => {
+    const { nodes, edges } = req.body;
+    try {
+        const manifest = {
+            version: "1.0.0",
+            lastUpdated: new Date().toISOString(),
+            topology: { nodes, edges }
+        };
+        
+        fs.writeFileSync(
+            path.join(process.cwd(), 'archestra_manifest.json'),
+            JSON.stringify(manifest, null, 2)
+        );
+
+        const agentNodes = nodes.filter(n => n.data?.category === 'provider');
+        
+        for (const node of agentNodes) {
+            const connectedMCP = edges
+                .filter(e => e.target === node.id)
+                .map(e => nodes.find(n => n.id === e.source))
+                .filter(n => n?.data?.category === 'mcp');
+
+            const agentConfig = {
+                name: node.data.customName || node.data.label,
+                description: node.data.sublabel || '',
+                tools: connectedMCP.map(mcp => mcp.data.toolId),
+                systemPrompt: node.data.config?.systemPrompt || 'You are a helpful AI assistant.',
+                ...(node.data.config || {})
+            };
+
+            await archestraFetch('/api/agents', {
+                method: 'POST',
+                body: JSON.stringify(agentConfig)
+            }).catch(err => console.error('Agent creation failed:', err));
+        }
+
+        res.json({ success: true, message: 'Topology deployed to Archestra' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Load saved topology
+app.get('/api/orchestra/load', (req, res) => {
+    const manifestPath = path.join(process.cwd(), 'archestra_manifest.json');
+    try {
+        if (fs.existsSync(manifestPath)) {
+            const data = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+            res.json({ success: true, ...data.topology });
+        } else {
+            res.json({ success: false, message: 'No manifest found' });
+        }
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Start MCP server via Archestra
+app.post('/api/mcp/run', async (req, res) => {
+    const { serverId } = req.body;
+    try {
+        await archestraFetch(`/api/mcp/servers/${serverId}/start`, { method: 'POST' });
+        res.json({ success: true, message: `MCP Server ${serverId} started` });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Chat with Archestra agent
+app.post('/api/agents/chat', async (req, res) => {
+    const { agentId, message, conversationId } = req.body;
+    try {
+        let targetAgentId = agentId;
+        if (agentId === 'copilot') {
+            try {
+                const agentsResp = await archestraFetch('/api/agents');
+                const copilotAgent = agentsResp.agents?.find(a => a.name === 'Copilot');
+                if (copilotAgent) {
+                    targetAgentId = copilotAgent.id;
+                } else {
+                    const newAgent = await archestraFetch('/api/agents', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            name: 'Copilot',
+                            description: 'Code generation assistant',
+                            systemPrompt: 'You are a Python MCP code generation assistant. Generate clean, working Python code with MCP decorators. Always wrap code in ```python blocks.'
+                        })
+                    });
+                    targetAgentId = newAgent.id;
+                }
+            } catch (e) {
+                console.error('Failed to setup copilot agent:', e);
+            }
+        }
+        
+        const response = await archestraFetch(`/api/agents/${targetAgentId}/chat`, {
+            method: 'POST',
+            body: JSON.stringify({ message, conversationId })
+        });
+        res.json({ success: true, ...response });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get Archestra gateway status
+app.get('/api/gateway/status', async (req, res) => {
+    try {
+        const status = await archestraFetch('/api/gateway/status');
+        res.json({ success: true, ...status });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// File system endpoints
 app.get('/api/fs/list', (req, res) => {
     const listFiles = (dir) => {
         const results = [];
@@ -59,13 +250,10 @@ app.get('/api/fs/list', (req, res) => {
     }
 });
 
-// File System: Read file content
 app.get('/api/fs/read', (req, res) => {
-    const filePath = req.query.path;
+    const { path: filePath } = req.query;
     try {
-        // Strip leading slash if present to avoid path.join turning it into an absolute root path on Windows
-        const normalizedPath = filePath.startsWith('/') ? filePath.substring(1) : filePath;
-        const fullPath = path.join(process.cwd(), normalizedPath);
+        const fullPath = path.join(process.cwd(), filePath);
         const content = fs.readFileSync(fullPath, 'utf8');
         res.json({ success: true, content });
     } catch (error) {
@@ -73,177 +261,33 @@ app.get('/api/fs/read', (req, res) => {
     }
 });
 
-// Orchestra: Get required nodes
-app.get('/api/orchestra/nodes', (req, res) => {
-    const nodes = [
-        { id: 'mcp-db', category: 'mcp', label: 'Postgres DB', sublabel: 'SQL Analytics', icon: 'db', toolId: 't-pg' },
-        { id: 'mcp-fs', category: 'mcp', label: 'File System', sublabel: 'Data Lake', icon: 'file', toolId: 't-fs' },
-        { id: 'prov-gw', category: 'provider', label: 'Archestra Gateway', sublabel: 'Edge Ingress', icon: 'net', toolId: 't-gateway' },
-        { id: 'prov-sec', category: 'provider', label: 'Policy Guard', sublabel: 'Zero Trust', icon: 'shield', toolId: 't-guard' },
-        { id: 'cli-portal', category: 'client', label: 'Admin Portal', sublabel: 'Next.js UI', icon: 'web', toolId: 't-next' },
-    ];
-    res.json({ success: true, standardNodes: nodes });
+app.post('/api/fs/write', (req, res) => {
+    const { path: filePath, content } = req.body;
+    try {
+        const fullPath = path.join(process.cwd(), filePath);
+        fs.writeFileSync(fullPath, content, 'utf8');
+        res.json({ success: true, message: 'File written successfully' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
 });
 
-// Orchestra: Save graph state (Representing architecture as code/config)
-app.post('/api/orchestra/save', (req, res) => {
-    const { nodes, edges } = req.body;
-    try {
-        const manifest = {
-            version: "1.0.0",
-            lastUpdated: new Date().toISOString(),
-            topology: { nodes, edges }
-        };
-        fs.writeFileSync(path.join(process.cwd(), 'archestra_manifest.json'), JSON.stringify(manifest, null, 2));
-
-        // Ensure a 'studio' directory exists for individual node code
-        const studioDir = path.join(process.cwd(), 'studio');
-        if (!fs.existsSync(studioDir)) {
-            fs.mkdirSync(studioDir);
-        } else {
-            // Strict Cleanup: Delete all .py files in studio to ensure sync with current graph
-            const existingFiles = fs.readdirSync(studioDir);
-            for (const file of existingFiles) {
-                if (file.endsWith('.py')) {
-                    try { fs.unlinkSync(path.join(studioDir, file)); } catch (e) { }
-                }
-            }
-        }
-
-        const getSafeModName = (node) => {
-            // Use customName if available, otherwise fall back to label
-            const userLabel = node.data.customName || node.data.label || 'node';
-            const slug = userLabel.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '').replace(/_+/g, '_');
-
-            // Extract a tiny suffix (2 chars) just to prevent OS-level file conflicts if names are identical
-            const idStr = String(node.id);
-            const suffix = idStr.length > 2 ? idStr.slice(-2) : idStr;
-
-            return `${node.data.category}_${slug}_${suffix}`;
-        };
-
-        // 1. Generate individual files for each node
-        const cardNodes = nodes.filter(n => n.type === 'card');
-        const nodeToModMap = {};
-
-        // Pre-calculate module names for all nodes so we can reference them in connections
-        cardNodes.forEach(node => {
-            nodeToModMap[node.id] = getSafeModName(node);
-        });
-
-        cardNodes.forEach(node => {
-            const modName = nodeToModMap[node.id];
-            const nodeFileName = `${modName}.py`;
-            const nodeFilePath = path.join(studioDir, nodeFileName);
-
-            // Find connections for YOU:
-            const outgoing = edges.filter(e => e.source === node.id).map(e => ({
-                targetId: e.target,
-                targetMod: nodeToModMap[e.target] || 'unknown',
-                label: nodes.find(n => n.id === e.target)?.data?.label || 'Unknown Node'
-            }));
-            const incoming = edges.filter(e => e.target === node.id).map(e => ({
-                sourceId: e.source,
-                sourceMod: nodeToModMap[e.source] || 'unknown',
-                label: nodes.find(n => n.id === e.source)?.data?.label || 'Unknown Node'
-            }));
-
-            let nodeCode = `"""\nArchestra Node: ${node.data.customName || node.data.label}\nCategory: ${node.data.category}\nGenerated on: ${manifest.lastUpdated}\n"""\nimport os\nimport sys\n\n# Ensure we can import other nodes in the studio\nsys.path.append(os.path.dirname(__file__))\n\n`;
-
-            // 1. GENERATE IMPORTS FOR CONNECTED NODES
-            if (incoming.length > 0) {
-                nodeCode += `# Upstream Imports\n`;
-                incoming.forEach(inc => {
-                    if (inc.sourceMod !== 'unknown') {
-                        nodeCode += `import ${inc.sourceMod}\n`;
-                    }
-                });
-                nodeCode += `\n`;
-            }
-
-
-            nodeCode += `# --- TOPOLOGY METADATA ---\n`;
-            nodeCode += `# This node receives data from ${incoming.length} upstream node(s)\n`;
-            nodeCode += `INCOMING_NODES = ${JSON.stringify(incoming, null, 4)}\n`;
-            nodeCode += `# This node sends data to ${outgoing.length} downstream node(s)\n`;
-            nodeCode += `OUTGOING_NODES = ${JSON.stringify(outgoing, null, 4)}\n\n`;
-
-            if (node.data.category === 'mcp') {
-                nodeCode += `from archestra import MCPClient\n\nconfig = ${JSON.stringify(node.data.config || {}, null, 4)}\n\ndef get_node():\n    return MCPClient(id="${node.id}", type="${node.data.toolId}", config=config)\n`;
-            } else if (node.data.category === 'provider') {
-                nodeCode += `from archestra import ArchestraGateway\n\nconfig = ${JSON.stringify(node.data.config || {}, null, 4)}\n\ndef get_node(registry):\n    # Initialize upstream dependencies\n    upstream_servers = []\n`;
-                incoming.forEach(inc => {
-                    if (inc.sourceMod !== 'unknown') {
-                        nodeCode += `    upstream_servers.append(${inc.sourceMod}.get_node())\n`;
-                    }
-                });
-                nodeCode += `    \n    return ArchestraGateway(\n        name="${node.data.label}", \n        registry=registry, \n        mcp_servers=upstream_servers, \n        **config\n    )\n`;
-            } else if (node.data.category === 'client') {
-                nodeCode += `from archestra import MCPClient\n\nconfig = ${JSON.stringify(node.data.config || {}, null, 4)}\n\ndef get_client():\n    # Resolve data sources\n    sources = []\n`;
-                incoming.forEach(inc => {
-                    if (inc.sourceMod !== 'unknown') {
-                        const call = inc.sourceMod.startsWith('client') ? 'get_client' : 'get_node';
-                        nodeCode += `    sources.append(${inc.sourceMod}.${call}())\n`;
-                    }
-                });
-                nodeCode += `    return MCPClient(id="${node.id}", type="${node.data.toolId}", config=config, sources=sources)\n`;
+app.listen(PORT, async () => {
+    console.log(`TimeToRise server running on port ${PORT}`);
+    console.log(`Archestra integration: ${ARCHESTRA_URL}`);
+    
+    // Test connection
+    setTimeout(async () => {
+        try {
+            const response = await fetch(`${ARCHESTRA_URL}/health`);
+            if (response.ok) {
+                const data = await response.json();
+                console.log('✅ Archestra connected:', data.name || 'Connected');
             } else {
-                nodeCode += `# Generic Configuration\nconfig = ${JSON.stringify(node.data.config || {}, null, 4)}\n`;
+                console.log('⚠️  Archestra responded with:', response.status);
             }
-
-            fs.writeFileSync(nodeFilePath, nodeCode);
-        });
-
-        // 2. Generate the main Orchestration script that imports these nodes
-        let pythonCode = `"""\nArchestra Deployment Script\nAutomatically generated on ${manifest.lastUpdated}\n"""\nfrom archestra import ArchestraRegistry, ArchestraOrchestrator\nimport sys\nimport os\n\n# Ensure studio path is importable\nsys.path.append(os.path.join(os.getcwd(), 'studio'))\n\n# 1. Initialize Registry\nregistry = ArchestraRegistry(name="TimeToRise-Registry")\n\n# 2. Import and Register Nodes\n`;
-
-        cardNodes.filter(n => n.data.category === 'mcp' || n.data.category === 'provider').forEach(node => {
-            const modName = nodeToModMap[node.id];
-            if (!modName) return;
-            const registryMethod = node.data.category === 'mcp' ? 'add_server' : 'add_provider';
-            pythonCode += `import ${modName}\nregistry.${registryMethod}(id="${node.id}", node=${modName}.get_node(${node.data.category === 'provider' ? 'registry' : ''}))\n`;
-        });
-
-        pythonCode += `\n# 3. Setup Orchestrator and Flows\norchestrator = ArchestraOrchestrator(name="MainOrchestrator")\n\n# Configure Flows based on UI connections\n`;
-
-        edges.forEach(edge => {
-            pythonCode += `orchestrator.add_flow(source="${edge.source}", target="${edge.target}", options={"animated": ${edge.animated}})\n`;
-        });
-
-        pythonCode += `\nif __name__ == "__main__":\n    print("Deploying Archestra Studio Architecture from individual node files...")\n    orchestrator.deploy()\n`;
-
-        fs.writeFileSync(path.join(process.cwd(), 'archestra_deploy.py'), pythonCode);
-
-        console.log("Archestra Topology saved as individual node files and manifest.");
-        res.json({ success: true, message: 'Architecture saved as individual code files.' });
-    } catch (error) {
-        console.error("Save error:", error);
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// Orchestra: Load graph state
-app.get('/api/orchestra/load', (req, res) => {
-    const manifestPath = path.join(process.cwd(), 'archestra_manifest.json');
-    try {
-        if (fs.existsSync(manifestPath)) {
-            const data = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-            res.json({ success: true, ...data.topology });
-        } else {
-            res.json({ success: false, message: 'No manifest found' });
+        } catch (err) {
+            console.log('❌ Archestra not responding. Start with: docker run -p 3000:3000 archestra/platform');
         }
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// Run MCP (Stub)
-app.post('/api/mcp/run', (req, res) => {
-    const { serverId } = req.body;
-    console.log(`Running MCP Server: ${serverId}`);
-    res.json({ success: true });
-});
-
-app.listen(PORT, () => {
-    console.log(`Backend running at http://localhost:${PORT}`);
+    }, 1000);
 });

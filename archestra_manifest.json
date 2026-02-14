@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "lastUpdated": "2026-02-14T14:31:24.527Z",
+  "lastUpdated": "2026-02-14T18:14:03.059Z",
   "topology": {
     "nodes": [
       {
@@ -64,7 +64,99 @@
         }
       },
       {
-        "id": "client-1771079437924",
+        "id": "mcp-1771089744760",
+        "type": "card",
+        "parentId": "lane-mcp",
+        "extent": "parent",
+        "position": {
+          "x": 20,
+          "y": 100
+        },
+        "dragHandle": ".drag-handle",
+        "data": {
+          "category": "mcp",
+          "label": "Postgres DB",
+          "customName": "Postgres DB",
+          "sublabel": "SQL Analytics",
+          "icon": "db",
+          "toolId": "t-pg"
+        },
+        "measured": {
+          "width": 400,
+          "height": 90
+        }
+      },
+      {
+        "id": "mcp-1771090152608",
+        "type": "card",
+        "parentId": "lane-mcp",
+        "extent": "parent",
+        "position": {
+          "x": 20,
+          "y": 200
+        },
+        "dragHandle": ".drag-handle",
+        "data": {
+          "category": "mcp",
+          "label": "Postgres DB",
+          "customName": "Postgres DB 2",
+          "sublabel": "SQL Analytics",
+          "icon": "db",
+          "toolId": "t-pg"
+        },
+        "measured": {
+          "width": 400,
+          "height": 90
+        }
+      },
+      {
+        "id": "provider-1771090157536",
+        "type": "card",
+        "parentId": "lane-provider",
+        "extent": "parent",
+        "position": {
+          "x": 20,
+          "y": 100
+        },
+        "dragHandle": ".drag-handle",
+        "data": {
+          "category": "provider",
+          "label": "Archestra Gateway",
+          "customName": "Archestra Gateway",
+          "sublabel": "Edge Ingress",
+          "icon": "net",
+          "toolId": "t-gateway"
+        },
+        "measured": {
+          "width": 400,
+          "height": 90
+        },
+        "selected": false
+      },
+      {
+        "id": "add-provider",
+        "type": "plus",
+        "parentId": "lane-provider",
+        "extent": "parent",
+        "position": {
+          "x": 20,
+          "y": 200
+        },
+        "style": {
+          "width": 380,
+          "height": 54
+        },
+        "data": {
+          "category": "provider"
+        },
+        "measured": {
+          "width": 380,
+          "height": 54
+        },
+        "selected": false
+      },
+      {
+        "id": "client-1771090160841",
         "type": "card",
         "parentId": "lane-client",
         "extent": "parent",
@@ -75,17 +167,16 @@
         "dragHandle": ".drag-handle",
         "data": {
           "category": "client",
-          "label": "CLI Tool",
-          "customName": "CLI Tool",
-          "sublabel": "Terminal",
-          "icon": "terminal",
-          "toolId": "t-cli"
+          "label": "Admin Portal",
+          "customName": "Admin Portal",
+          "sublabel": "Next.js UI",
+          "icon": "web",
+          "toolId": "t-next"
         },
         "measured": {
           "width": 400,
           "height": 90
-        },
-        "selected": true
+        }
       },
       {
         "id": "add-client",
@@ -110,27 +201,52 @@
         "selected": false
       },
       {
-        "id": "mcp-1771079450955",
+        "id": "mcp-1771090344767",
         "type": "card",
         "parentId": "lane-mcp",
         "extent": "parent",
         "position": {
           "x": 20,
-          "y": 100
+          "y": 300
         },
         "dragHandle": ".drag-handle",
         "data": {
           "category": "mcp",
-          "label": "Stripe API",
-          "customName": "Stripe API",
-          "sublabel": "Payments",
-          "icon": "stripe",
-          "toolId": "t-stripe"
+          "label": "Postgres DB",
+          "customName": "Postgres DB 3",
+          "sublabel": "SQL Analytics",
+          "icon": "db",
+          "toolId": "t-pg"
         },
         "measured": {
           "width": 400,
           "height": 90
-        }
+        },
+        "selected": false
+      },
+      {
+        "id": "mcp-1771090354111",
+        "type": "card",
+        "parentId": "lane-mcp",
+        "extent": "parent",
+        "position": {
+          "x": 20,
+          "y": 400
+        },
+        "dragHandle": ".drag-handle",
+        "data": {
+          "category": "mcp",
+          "label": "File System",
+          "customName": "File System",
+          "sublabel": "Data Lake",
+          "icon": "file",
+          "toolId": "t-fs"
+        },
+        "measured": {
+          "width": 400,
+          "height": 90
+        },
+        "selected": false
       },
       {
         "id": "add-mcp",
@@ -139,7 +255,7 @@
         "extent": "parent",
         "position": {
           "x": 20,
-          "y": 200
+          "y": 500
         },
         "style": {
           "width": 380,
@@ -152,109 +268,9 @@
           "width": 380,
           "height": 54
         },
-        "selected": false
-      },
-      {
-        "id": "provider-1771079452537",
-        "type": "card",
-        "parentId": "lane-provider",
-        "extent": "parent",
-        "position": {
-          "x": 20,
-          "y": 100
-        },
-        "dragHandle": ".drag-handle",
-        "data": {
-          "category": "provider",
-          "label": "API Gateway",
-          "customName": "API Gateway",
-          "sublabel": "Ingress",
-          "icon": "net",
-          "toolId": "t-gateway"
-        },
-        "measured": {
-          "width": 400,
-          "height": 90
-        },
-        "selected": false
-      },
-      {
-        "id": "provider-1771079456548",
-        "type": "card",
-        "parentId": "lane-provider",
-        "extent": "parent",
-        "position": {
-          "x": 20,
-          "y": 200
-        },
-        "dragHandle": ".drag-handle",
-        "data": {
-          "category": "provider",
-          "label": "API Gateway",
-          "customName": "API Gateway 2",
-          "sublabel": "Ingress",
-          "icon": "net",
-          "toolId": "t-gateway"
-        },
-        "measured": {
-          "width": 400,
-          "height": 90
-        }
-      },
-      {
-        "id": "add-provider",
-        "type": "plus",
-        "parentId": "lane-provider",
-        "extent": "parent",
-        "position": {
-          "x": 20,
-          "y": 300
-        },
-        "style": {
-          "width": 380,
-          "height": 54
-        },
-        "data": {
-          "category": "provider"
-        },
-        "measured": {
-          "width": 380,
-          "height": 54
-        },
-        "selected": false
+        "selected": true
       }
     ],
-    "edges": [
-      {
-        "type": "smoothstep",
-        "markerEnd": {
-          "type": "arrowclosed",
-          "color": "#00f2ff"
-        },
-        "style": {
-          "stroke": "#fff",
-          "strokeWidth": 1.5
-        },
-        "source": "mcp-1771079450955",
-        "target": "provider-1771079452537",
-        "animated": true,
-        "id": "xy-edge__mcp-1771079450955-provider-1771079452537"
-      },
-      {
-        "type": "smoothstep",
-        "markerEnd": {
-          "type": "arrowclosed",
-          "color": "#00f2ff"
-        },
-        "style": {
-          "stroke": "#fff",
-          "strokeWidth": 1.5
-        },
-        "source": "provider-1771079452537",
-        "target": "client-1771079437924",
-        "animated": true,
-        "id": "xy-edge__provider-1771079452537-client-1771079437924"
-      }
-    ]
+    "edges": []
   }
 }
